@@ -1,0 +1,88 @@
+SELECT
+    s1.*,
+    s2.*,
+    s3.zone_name,
+    s3.borough,
+    EXTRACT(day FROM when_the_delivery_started) as day_num,
+    -- Delivery Started (t1):
+    EXTRACT(hour FROM when_the_delivery_started) as t1_hour,
+    EXTRACT(minute FROM when_the_delivery_started) as t1_min,
+    -- Courier Arrived (t2):
+    EXTRACT(hour FROM when_the_Courier_arrived_at_pickup) as t2_hour,
+    EXTRACT(minute FROM when_the_Courier_arrived_at_pickup) as t2_min,
+    -- Courier Left Pickup (t3)
+    EXTRACT(hour FROM when_the_Courier_left_pickup) as t3_hour,
+    EXTRACT(minute FROM when_the_Courier_left_pickup) as t3_min,
+    -- Courier Arrived at Dropoff (t4)
+    EXTRACT(hour FROM when_the_Courier_arrived_at_dropoff) as t4_hour,
+    EXTRACT(minute FROM when_the_Courier_arrived_at_dropoff) as t4_min,
+    -- Time it took to complete Order:
+    CASE
+        WHEN EXTRACT(minute FROM when_the_Courier_left_pickup) = 0 THEN 0
+        WHEN EXTRACT(minute FROM when_the_Courier_left_pickup) - EXTRACT(minute FROM when_the_delivery_started) >= 0 
+            THEN EXTRACT(minute FROM when_the_Courier_left_pickup) - EXTRACT(minute FROM when_the_delivery_started)
+        ELSE 60 + EXTRACT(minute FROM when_the_Courier_left_pickup) - EXTRACT(minute FROM when_the_delivery_started)
+    END AS time_taken,
+    -- Active Since:
+    (
+        SELECT MIN(EXTRACT(day FROM when_the_delivery_started))
+        FROM Skillful_Data.Project_Data
+        WHERE pickup_place = s1.pickup_place AND Pickup_Zone_ID = s1.Pickup_Zone_ID
+    ) AS active_since,
+    -- Inactive Since:
+    (
+        SELECT MAX(EXTRACT(day FROM when_the_delivery_started))
+        FROM Skillful_Data.Project_Data
+        WHERE pickup_place = s1.pickup_place AND Pickup_Zone_ID = s1.Pickup_Zone_ID
+    ) AS inactive_since,
+    -- Inactive Cohort
+    (
+        SELECT
+            CASE 
+                WHEN MAX(EXTRACT(day FROM when_the_delivery_started)) > 24 THEN 'Active'
+                ELSE 'Inactive'
+            END 
+        FROM Skillful_Data.Project_Data
+        WHERE pickup_place = s1.pickup_place AND Pickup_Zone_ID = s1.Pickup_Zone_ID
+    ) AS status,
+    CONCAT(pickup_place,' ',zone_name) AS Unique_location,
+    (
+        SELECT MIN(EXTRACT(day FROM when_the_delivery_started))
+        FROM Skillful_Data.Project_Data
+        WHERE courier_id = s1.courier_id
+    ) AS courier_first_order,
+    (
+        SELECT MAX(EXTRACT(day FROM when_the_delivery_started))
+        FROM Skillful_Data.Project_Data
+        WHERE courier_id = s1.courier_id
+    ) AS courier_last_order
+FROM (
+    SELECT 
+        delivery_id,
+        MAX(customer_id) as customer_id,
+        MAX(Courier_id) as Courier_id,
+        MAX(vehicle_type) as vehicle_type,
+        MAX(pickup_place) as pickup_place,
+        MAX(place_category) as place_category,
+        MAX(item_name) as item_name,
+        MAX(item_quantity) as item_quantity,
+        MAX(item_category_name) as item_category_name,
+        MAX(how_long_it_took_to_order) as how_long_it_took_to_order,
+        MAX(when_the_delivery_started) as when_the_delivery_started,
+        MAX(when_the_Courier_arrived_at_pickup) as when_the_Courier_arrived_at_pickup,
+        MAX(when_the_Courier_left_pickup) as when_the_Courier_left_pickup,
+        MAX(when_the_Courier_arrived_at_dropoff) as when_the_Courier_arrived_at_dropoff,
+        MAX(Pickup_Zone_ID) as Pickup_Zone_ID,
+        MAX(Dropoff_Zone_ID) as Dropoff_Zone_ID,
+        SUM(Total) as Total
+    FROM Skillful_Data.Project_Data
+    GROUP BY delivery_id
+    ) AS s1
+LEFT JOIN Skillful_Data.Ratings AS s2
+    ON s1.delivery_id = s2.delivery_id
+LEFT JOIN Skillful_Data.Zone_Information AS s3
+    ON s1.Pickup_Zone_ID = cast(s3.zone_id AS INT)
+ORDER BY 
+    pickup_place ASC,
+    day_num ASC,
+    s1.delivery_id ASC;
